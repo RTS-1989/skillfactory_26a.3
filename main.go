@@ -160,7 +160,7 @@ func newProducer(done chan bool, wg *sync.WaitGroup) *Producer {
 	}
 }
 
-// startProducer method of Producer. Sends value from command line ti channel og integers. Returns channel of integers
+// startProducer method of Producer. Sends value from command line to channel of integers. Returns channel of integers
 func (p *Producer) startProducer() chan int {
 	var value int
 	channel := make(chan int)
