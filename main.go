@@ -2,10 +2,16 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"sync"
 	"time"
+)
+
+var (
+	infoLog  = log.New(os.Stdout, "INFO\t", log.Ldate|log.Ltime)
+	errorLog = log.New(os.Stderr, "ERROR\t", log.Ldate|log.Ltime|log.Lshortfile)
 )
 
 type RingBuffer struct {
@@ -25,6 +31,7 @@ func NewRingBuffer(size int) *RingBuffer {
 }
 
 func (r *RingBuffer) Push(elementToInsert int) {
+	infoLog.Println("Push element to buffer")
 	r.m.Lock()
 	defer r.m.Unlock()
 	if r.pos == r.size-1 {
@@ -39,6 +46,7 @@ func (r *RingBuffer) Push(elementToInsert int) {
 }
 
 func (r *RingBuffer) Get() []int {
+	infoLog.Println("Get element to buffer")
 	valuesToGet := make([]int, 0, r.size)
 	for _, value := range r.values {
 		if value != 0 {
@@ -71,7 +79,8 @@ func (pl *Pipeline) runStage(stage Stage, inChan <-chan int, done chan bool) cha
 
 func (pl *Pipeline) RunPipeline(producerChan <-chan int) <-chan int {
 	var pipelineChannel = producerChan
-	for _, stage := range pl.stagesList {
+	for n, stage := range pl.stagesList {
+		infoLog.Printf("Start run stage № %d\n", n+1)
 		pl.wg.Add(1)
 		pipelineChannel = pl.runStage(stage, pipelineChannel, pl.done)
 	}
@@ -80,6 +89,7 @@ func (pl *Pipeline) RunPipeline(producerChan <-chan int) <-chan int {
 
 // filterNegative method for filtering negative values. Returns filtered channel of integers
 func filterNegative(producerChannel <-chan int, done <-chan bool, wg *sync.WaitGroup) chan int {
+	infoLog.Println("Run stage filterNegative")
 	negativeValuesCounter := 0
 	filteredNegative := make(chan int)
 
@@ -101,8 +111,8 @@ func filterNegative(producerChannel <-chan int, done <-chan bool, wg *sync.WaitG
 						}
 					}
 				}
-				fmt.Printf("Pipeline get %d not negative values\n", negativeValuesCounter)
-				fmt.Println("Останавливаем канал фильтрации негативных значений")
+				infoLog.Printf("Pipeline get %d not negative values\n", negativeValuesCounter)
+				infoLog.Println("Останавливаем канал фильтрации негативных значений")
 				wg.Done()
 				return
 			}
@@ -114,6 +124,7 @@ func filterNegative(producerChannel <-chan int, done <-chan bool, wg *sync.WaitG
 
 // filterMultipleOfThree method. Filters multiply by 3 values. Returns filtered channel of integers
 func filterMultipleOfThree(negativesChan <-chan int, done <-chan bool, wg *sync.WaitGroup) chan int {
+	infoLog.Println("Run stage filterMultipleOfThree")
 	multipleOfThreeValuesCounter := 0
 	multipleThree := make(chan int)
 
@@ -135,8 +146,8 @@ func filterMultipleOfThree(negativesChan <-chan int, done <-chan bool, wg *sync.
 						}
 					}
 				}
-				fmt.Printf("Pipeline get %d not multiple by 3 values\n", multipleOfThreeValuesCounter)
-				fmt.Println("Останавливаем канал фильтрации значений не кратных 3")
+				infoLog.Printf("Pipeline get %d not multiple by 3 values\n", multipleOfThreeValuesCounter)
+				infoLog.Println("Останавливаем канал фильтрации значений не кратных 3")
 				wg.Done()
 				return
 			}
@@ -162,6 +173,7 @@ func newProducer(done chan bool, wg *sync.WaitGroup) *Producer {
 
 // startProducer method of Producer. Sends value from command line to channel of integers. Returns channel of integers
 func (p *Producer) startProducer() chan int {
+	infoLog.Println("Start producer")
 	var value int
 	channel := make(chan int)
 	ticker := time.NewTicker(50 * time.Millisecond)
@@ -174,11 +186,11 @@ func (p *Producer) startProducer() chan int {
 			case <-ticker.C:
 				_, err := fmt.Scanf("%d", &value)
 				if err != nil {
-					fmt.Println("Value is not int!")
+					errorLog.Println("Value is not int!")
 				} else {
 					c <- value
 					p.valuesSentCounter += 1
-					fmt.Println("Producer send value")
+					infoLog.Println("Producer send value")
 				}
 			}
 		}
@@ -187,7 +199,7 @@ func (p *Producer) startProducer() chan int {
 	go func() {
 		select {
 		case <-p.doneCh:
-			fmt.Println("Stop producer")
+			infoLog.Println("Stop producer")
 			p.wg.Done()
 			return
 		}
@@ -212,6 +224,7 @@ func newConsumer(done chan bool, wg *sync.WaitGroup) *Consumer {
 }
 
 func (cn *Consumer) startConsumer(filteredByThree <-chan int) chan int {
+	infoLog.Println("Start consumer")
 	channel := make(chan int)
 	go func(filteredValues chan int) {
 		cn.wg.Add(1)
@@ -221,14 +234,14 @@ func (cn *Consumer) startConsumer(filteredByThree <-chan int) chan int {
 			case value := <-filteredByThree:
 				filteredValues <- value
 				cn.valuesConsumerGet += 1
-				fmt.Println("Consumer get value")
+				infoLog.Println("Consumer get value")
 			case <-cn.doneCh:
 				if len(filteredByThree) > 0 {
 					for value := range filteredByThree {
 						filteredValues <- value
 					}
 				}
-				fmt.Println("Stop consumer")
+				infoLog.Println("Stop consumer")
 				cn.wg.Done()
 				return
 			}
@@ -239,7 +252,7 @@ func (cn *Consumer) startConsumer(filteredByThree <-chan int) chan int {
 }
 
 func main() {
-	fmt.Printf("Start app\nInsert values in buffer\n")
+	infoLog.Printf("Start app\n")
 	const ringBufferSize = 10
 	buffer := NewRingBuffer(ringBufferSize)
 	bufferTicker := time.NewTicker(10 * time.Second)
@@ -260,23 +273,25 @@ func main() {
 	pipelineChannel := pipeline.RunPipeline(producerChan)
 	consumerChannel := consumer.startConsumer(pipelineChannel)
 
+	infoLog.Printf("Please insert values in buffer\n")
+
 	for {
 		select {
 		case value := <-consumerChannel:
 			buffer.Push(value)
-			fmt.Printf("Current buffer values -> %v\n", buffer.values)
+			infoLog.Printf("Current buffer values -> %v\n", buffer.values)
 		case <-bufferTicker.C:
-			fmt.Printf("Values got from buffer -> %v\n", buffer.Get())
+			infoLog.Printf("Values got from buffer -> %v\n", buffer.Get())
 		case <-stopAppChan:
-			fmt.Printf("\nStatistics:\n")
-			fmt.Printf("Producer sent %d values\n", producer.valuesSentCounter)
-			fmt.Printf("Consumer get %d values\n", consumer.valuesConsumerGet)
+			infoLog.Printf("\nStatistics:\n")
+			infoLog.Printf("Producer sent %d values\n", producer.valuesSentCounter)
+			infoLog.Printf("Consumer get %d values\n", consumer.valuesConsumerGet)
 			close(doneCh)
-			fmt.Printf("Values got from buffer -> %v\n", buffer.Get())
+			infoLog.Printf("Values got from buffer -> %v\n", buffer.Get())
 			stagesWg.Wait()
 			consumerWg.Wait()
 			producerWg.Wait()
-			fmt.Println("App stopped")
+			infoLog.Println("App stopped")
 			return
 		}
 	}
